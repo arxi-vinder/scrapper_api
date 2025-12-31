@@ -1,35 +1,24 @@
-ARXIV_FIELDS = {
-    # Mathematics
-    "math": 100,
+import asyncio
+import random
+from bs4 import BeautifulSoup
+from fastapi import APIRouter
+import httpx
 
-    # Statistics
-    "stat": 50,
+from app.schemas.request.category_arxiv import CategoryArxivRequest
+from app.utils.arxiv_helper import arxiv_pages, extract_id
 
-    # Computer Science
-    "cs": 100,
 
-    # Physics (umum & spesifik)
-    "physics": 50,
-    "astro-ph": 40,          # Astrophysics
-    "cond-mat": 40,          # Condensed Matter
-    "gr-qc": 30,             # General Relativity and Quantum Cosmology
-    "hep-ex": 30,            # High Energy Physics - Experiment
-    "hep-lat": 30,           # High Energy Physics - Lattice
-    "hep-ph": 30,            # High Energy Physics - Phenomenology
-    "hep-th": 30,            # High Energy Physics - Theory
-    "quant-ph": 30,          # Quantum Physics
-    "nucl-ex": 20,           # Nuclear Experiment
-    "nucl-th": 20,           # Nuclear Theory
+router = APIRouter(
+    prefix="/arxiv",
+)
 
-    # Electrical Engineering & Systems Science
-    "eess": 40,
 
-    # Economics
-    "econ": 30,
+@router.post("/pages")
+async def generate_pages(data: CategoryArxivRequest):
+    pages = arxiv_pages(data.arxiv_fields)
+    return {
+        "status": "success",
+        "data": pages
+    }
 
-    # Quantitative Biology
-    "q-bio": 30,
 
-    # Quantitative Finance
-    "q-fin": 30
-}
