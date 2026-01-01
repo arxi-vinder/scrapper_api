@@ -1,8 +1,17 @@
 import asyncio
+from datetime import datetime
+import os
 import random
+from typing import Any, Dict, List
 from bs4 import BeautifulSoup
 import httpx
+import pandas as pd
 
+DATA_DIR = "data"
+CSV_FILENAME = "arxiv_papers_daily.csv"
+CSV_PATH = os.path.join(DATA_DIR, CSV_FILENAME)
+
+os.makedirs(DATA_DIR, exist_ok=True)
 
 def arxiv_pages(fields:dict):
     pages = {}
@@ -34,11 +43,11 @@ async def fetch_page(client, url):
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
     
-    delay = random.uniform(5, 15) 
+    delay = random.uniform(5, 10) 
     await asyncio.sleep(delay)
     
     try:
-        response = await client.get(url, headers=headers, timeout=30.0)
+        response = await client.get(url, headers=headers, timeout=12.0)
         if response.status_code == 200:
             ids = extract_id(response.text)
             return ids
@@ -74,9 +83,9 @@ async def fetch_paper_details(client, arxiv_id):
     
     try:
         # Delay acak 2-5 detik agar tidak dianggap spammer oleh ArXiv
-        await asyncio.sleep(random.uniform(20, 50))
+        await asyncio.sleep(random.uniform(10, 20))
         
-        response = await client.get(url, headers=headers, timeout=30.0)
+        response = await client.get(url, headers=headers, timeout=12.0)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
             
@@ -124,3 +133,19 @@ async def scrape_all_details(id_list):
                 all_details.append(detail)
                 
     return all_details
+
+def save_to_csv(new_data: List[Dict[str, Any]]) -> None:
+    if not new_data:
+        return
+
+    new_df = pd.DataFrame(new_data)
+    new_df["last_updated"] = datetime.now()
+
+    if os.path.exists(CSV_PATH):
+        old_df = pd.read_csv(CSV_PATH)
+        df = pd.concat([old_df, new_df], ignore_index=True)
+    else:
+        df = new_df
+
+    df = df.drop_duplicates(subset="id", keep="last")
+    df.to_csv(CSV_PATH, index=False)
