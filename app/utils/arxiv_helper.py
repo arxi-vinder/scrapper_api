@@ -2,13 +2,14 @@ import asyncio
 from datetime import datetime
 import os
 import random
+import re
 from typing import Any, Dict, List
 from bs4 import BeautifulSoup
 import httpx
 import pandas as pd
 
 DATA_DIR = "data"
-CSV_FILENAME = "arxiv_papers_daily.csv"
+CSV_FILENAME = "arxiv_papers_daily_fixed.csv"
 CSV_PATH = os.path.join(DATA_DIR, CSV_FILENAME)
 
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -22,6 +23,7 @@ def arxiv_pages(fields:dict):
             page = f"https://arxiv.org/list/{category}/pastweek?skip={skip}&show=25"
             category_pages.append(page)
         pages[category] = category_pages
+    print(pages)
     return pages
 
 
@@ -99,8 +101,19 @@ async def fetch_paper_details(client, arxiv_id):
             
             # Ekstrak Abstrak
             abstract = soup.find('blockquote', class_='abstract mathjax')
-            abstract_text = abstract.text.replace('Abstract:', " ").strip() if abstract else "N/A"
+            abstract_text = abstract.text.replace('Abstract:', " ").strip() if abstract else "N/A"    
+            primary_category_name = "N/A"
+            primary_category_code = "N/A"
             
+            subjects_td = soup.find("td", class_="tablecell subjects")
+            
+            if subjects_td:
+                primary_span = subjects_td.find("span",class_="primary-subject")
+
+                if primary_span:
+                    text = primary_span.text.strip()
+                    primary_category_name = text
+
             # Ekstrak Tanggal Submit
             date_tag = soup.find('div', class_='dateline')
             date_text = date_tag.text.strip() if date_tag else "N/A"
@@ -111,7 +124,8 @@ async def fetch_paper_details(client, arxiv_id):
                 "authors": authors_text,
                 "abstract": abstract_text,
                 "published_date": date_text,
-                "url": url
+                "category":primary_category_name,
+                "url": url,
             }
         else:
             return None
