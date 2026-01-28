@@ -2,6 +2,8 @@ import asyncio
 import random
 import httpx
 from bs4 import BeautifulSoup
+import argparse
+from urllib.parse import urlencode, quote_plus
 
 
 ARXIV_FIELDS = {
@@ -51,6 +53,77 @@ def arxiv_pages(fields):
             category_pages.append(page)
         pages[category] = category_pages
     return pages
+
+
+def build_advanced_search_url(category='computer_science', from_date=None, to_date=None, size=200, order=''):
+    """Builds an arXiv advanced search URL with dynamic classification/category and date range.
+
+    category should be a string like 'computer_science' or 'mathematics'.
+    from_date and to_date should be in YYYY-MM or YYYY-MM-DD formats accepted by arXiv.
+    """
+    base = 'https://arxiv.org/search/advanced'
+    params = {
+        'advanced': '',
+        'terms-0-operator': 'AND',
+        'terms-0-term': '',
+        'terms-0-field': 'title',
+        'classification-physics_archives': 'all',
+        'classification-include_cross_list': 'include',
+        'date-year': '',
+        'date-filter_by': 'date_range' if (from_date or to_date) else '',
+        'date-from_date': from_date or '',
+        'date-to_date': to_date or '',
+        'date-date_type': 'submitted_date',
+        'abstracts': 'show',
+        'size': str(size),
+        'order': order,
+    }
+
+    # Enable the chosen classification (e.g., classification-computer_science=y)
+    params[f'classification-{category}'] = 'y'
+
+    # urlencode but keep empty values as-is
+    query = urlencode(params, doseq=True, quote_via=quote_plus)
+    return f"{base}?{query}"
+
+
+def extract_ids_from_advanced_search(html):
+    soup = BeautifulSoup(html, 'html.parser')
+    ids = []
+    for result in soup.select('li.arxiv-result'):
+        a = result.find('p', class_='list-title is-inline-block')
+        if a:
+            link = a.find('a')
+            if link and link.get('href'):
+                href = link['href']
+                # href like /abs/XXXX.XXXXX
+                ids.append(href.split('/')[-1]) # type: ignore
+    # fallback: also look for links with title Abstract
+    if not ids:
+        for a_tag in soup.find_all('a', title='Abstract'):
+            href = a_tag.get('href', '')
+            if href and isinstance(href, str):
+                ids.append(href.split('/')[-1])
+    return ids
+
+
+async def fetch_advanced_search(client, category='computer_science', from_date=None, to_date=None, size=200, order=''):
+    url = build_advanced_search_url(category=category, from_date=from_date, to_date=to_date, size=size, order=order)
+    print(f"Fetching advanced search URL: {url}")
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+    try:
+        resp = await client.get(url, headers=headers, timeout=30.0)
+        if resp.status_code == 200:
+            ids = extract_ids_from_advanced_search(resp.text)
+            print(f"Found {len(ids)} ids on advanced search page")
+            return ids
+        else:
+            print(f"Advanced search failed: {resp.status_code}")
+    except Exception as e:
+        print(f"Exception fetching advanced search: {e}")
+    return []
 
 def extract_id(html):
     soup = BeautifulSoup(html, 'html.parser')
@@ -176,12 +249,25 @@ def convert_to_csv():
     print("print")
 
 async def main():
-    all_pages = arxiv_pages(ARXIV_FIELDS)
-    arxiv_id =  await fetchArxivId(all_pages)
-    print("SCRAPPING RESULT:" , arxiv_id)
-    detail_paper = await scrape_all_details(arxiv_id)
-    
-    print("Detail Paper" , detail_paper)
+    parser = argparse.ArgumentParser(description='ArXiv advanced search scraper')
+    parser.add_argument('--category', '-c', default='computer_science', help='classification to enable (e.g., computer_science, mathematics, physics)')
+    parser.add_argument('--from-date', '-f', default='2025-12', help='from date in YYYY-MM or YYYY-MM-DD')
+    parser.add_argument('--to-date', '-t', default='2026-01', help='to date in YYYY-MM or YYYY-MM-DD')
+    parser.add_argument('--size', '-s', type=int, default=200, help='results per page')
+    args = parser.parse_args()
+
+    async with httpx.AsyncClient() as client:
+        ids = await fetch_advanced_search(client, category=args.category, from_date=args.from_date, to_date=args.to_date, size=args.size)
+        if not ids:
+            print('No ids found from advanced search; falling back to category list scraping')
+            all_pages = arxiv_pages(ARXIV_FIELDS)
+            arxiv_id = await fetchArxivId(all_pages)
+            ids = arxiv_id or []
+
+    print('SCRAPPING RESULT:', ids)
+    if ids:
+        detail_paper = await scrape_all_details(ids[:50])
+        print('Detail Paper', detail_paper)
 
 if __name__ == "__main__":
     asyncio.run(main())
